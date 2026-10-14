@@ -7,7 +7,8 @@
   1. Показывает список файлов данных (CSV/JSON) из папки data.
   2. Показывает список HTML-шаблонов из папки templates.
   3. Вы выбираете файл данных, шаблон и номер документа (invoice_id).
-  4. Скрипт собирает документ и сохраняет PDF в папку output, затем открывает его.
+  4. Скрипт собирает документ и сохраняет PDF в папку output,
+     затем открывает его.
 
 Запуск: python3 pdf_generator.py
 """
@@ -41,7 +42,10 @@ def list_files(folder: Path, exts: set) -> list:
 def choose(title: str, options, to_text=str):
     """Пронумерованное меню в консоли, возвращает выбранный вариант."""
     if not options:
-        raise SystemExit(f"{title} — ничего не найдено. Положите файл в нужную папку и запустите снова.")
+        raise SystemExit(
+            f"{title} — ничего не найдено. "
+            "Положите файл в нужную папку и запустите снова."
+        )
     print(f"\n{title}")
     for i, opt in enumerate(options, 1):
         print(f"  {i}. {to_text(opt)}")
@@ -54,19 +58,23 @@ def choose(title: str, options, to_text=str):
 
 def load_rows(path: Path) -> list:
     """Прочитать файл данных в список записей {колонка: значение}."""
-    text = path.read_text(encoding="utf-8-sig")  # utf-8-sig срезает BOM из Excel
+    # utf-8-sig срезает BOM, который Excel добавляет в начало CSV
+    text = path.read_text(encoding="utf-8-sig")
     if path.suffix.lower() == ".json":
         data = json.loads(text)
         if isinstance(data, dict):  # допускаем {"items": [...]}
             data = data.get("items") or data.get("data")
         if not isinstance(data, list):
-            raise ValueError("JSON должен быть списком записей вида [ {...}, {...} ]")
+            raise ValueError(
+                "JSON должен быть списком записей вида [ {...}, {...} ]"
+            )
         return data
     return list(csv.DictReader(text.splitlines()))
 
 
 def group_by_invoice(rows: list) -> dict:
-    """Собрать позиции по счетам: {invoice_id: [строки]} в порядке появления."""
+    """Собрать позиции по счетам: {invoice_id: [строки]}.
+    Группа формируется в порядке появления строк в файле."""
     invoices = {}
     for r in rows:
         invoices.setdefault(r["invoice_id"], []).append(r)
@@ -89,7 +97,7 @@ def to_float(text: str) -> float:
 
 
 def make_items(rows: list):
-    """Строки таблицы для подстановки вместо {{ items }} + общая сумма."""
+    """Строки таблицы для подстановки вместо {{ items }} + общая сумма."""  # noqa: E501
     lines, total = [], 0.0
     for i, r in enumerate(rows, 1):
         qty = to_float(r.get("qty", "0"))
@@ -99,7 +107,8 @@ def make_items(rows: list):
         lines.append(
             f"<tr><td>{i}</td>"
             f'<td class="name">{html.escape(r.get("item", ""))}</td>'
-            f"<td>{number(qty)}</td><td>{money(price)}</td><td>{money(amount)}</td></tr>"
+            f"<td>{number(qty)}</td>"
+            f"<td>{money(price)}</td><td>{money(amount)}</td></tr>"
         )
     return "\n".join(lines), total
 
@@ -114,7 +123,10 @@ def render(template_text: str, rows: list) -> str:
     def substitute(m):
         key = m.group(1)
         if key not in fields:
-            raise KeyError(f"в шаблоне есть метка {{{{ {key} }}}}, но такой колонки в данных нет")
+            raise KeyError(
+                f"в шаблоне есть метка {{{{ {key} }}}}, "
+                "но такой колонки в данных нет"
+            )
         return fields[key]
 
     return re.sub(r"\{\{\s*(\w+)\s*\}\}", substitute, template_text)
@@ -150,19 +162,28 @@ def run():
     if not rows:
         raise SystemExit(f"Файл {data_file.name} пустой")
     if "invoice_id" not in rows[0]:
-        raise SystemExit("В данных нет колонки invoice_id — без неё нельзя собрать документ")
+        raise SystemExit(
+            "В данных нет колонки invoice_id "
+            "— без неё нельзя собрать документ"
+        )
 
     invoice_id = choose("Документы:", list(group_by_invoice(rows)))
 
-    page = render(template.read_text(encoding="utf-8"), group_by_invoice(rows)[invoice_id])
+    positions = group_by_invoice(rows)[invoice_id]
+    page = render(template.read_text(encoding="utf-8"), positions)
 
     try:
         pdf = generate_pdf(page, invoice_id)
     except ImportError:
-        raise SystemExit("Библиотека WeasyPrint не установлена. В терминале: pip install weasyprint")
-    except OSError as e:
-        raise SystemExit("WeasyPrint не запустился — обычно не хватает системных библиотек "
-                         "(на macOS помогает: brew install pango). Подробности: " + str(e))
+        raise SystemExit(
+            "Библиотека WeasyPrint не установлена. "
+            "В терминале: pip install weasyprint"
+        )
+    except OSError as exc:
+        hint = ("WeasyPrint не запустился — обычно не хватает системных "
+                "библиотек (на macOS помогает: brew install pango). "
+                "Подробности: ")
+        raise SystemExit(hint + str(exc))
 
     print(f"\nГотово: {pdf}")
     open_pdf(pdf)
